@@ -3,6 +3,8 @@ package com.trading.bot.scheduler;
 import com.trading.bot.configuration.MovingMomentumStrategy;
 import org.knowm.xchange.Exchange;
 import org.knowm.xchange.dto.trade.MarketOrder;
+import org.knowm.xchange.kucoin.KucoinMarketDataService;
+import org.knowm.xchange.kucoin.dto.KlineIntervalType;
 import org.knowm.xchange.kucoin.dto.response.KucoinKline;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,13 +18,11 @@ import org.ta4j.core.Strategy;
 import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 import static com.trading.bot.configuration.BotConfig.CURRENCY_PAIR;
-import static com.trading.bot.util.TradeUtil.*;
 import static org.knowm.xchange.dto.Order.OrderType.*;
 
 @Service
@@ -54,7 +54,7 @@ public class Trader {
         kucoinKlines.forEach(kucoinKline -> loadBarSeries(barSeries, kucoinKline));
     }
 
-    @Scheduled(cron = "30 */5 * * * *")
+    @Scheduled(cron = "10 * * * * *")
     public void sell() throws IOException {
         final long startDate = LocalDateTime.now(ZoneOffset.UTC).minusMinutes(30).toEpochSecond(ZoneOffset.UTC);
         List<KucoinKline> kucoinKlines = getKucoinKlines(exchange, startDate, 0L);
@@ -65,7 +65,7 @@ public class Trader {
             MarketOrder marketOrder = new MarketOrder(BID, tradeLimit, CURRENCY_PAIR);
             orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
 
-            logger.info("BUY !!! Price {} Response {}", lastKline.getClose(), orderId);
+            logger.info("BUY {} Price {} Response {}", tradeLimit, lastKline.getClose(), orderId);
             purchased = true;
             return;
         }
@@ -75,8 +75,23 @@ public class Trader {
             MarketOrder marketOrder = new MarketOrder(ASK, tradeLimit, CURRENCY_PAIR);
             orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
 
-            logger.info("SELL !!! Price {} Response {}", lastKline.getClose(), orderId);
-            purchased = true;
+            logger.info("SELL {} Price {} Response {}", tradeLimit, lastKline.getClose(), orderId);
+            purchased = false;
         }
+    }
+
+    public static List<KucoinKline> getKucoinKlines(Exchange exchange, long startDate, long endDate) throws IOException {
+        return ((KucoinMarketDataService) exchange.getMarketDataService())
+                .getKucoinKlines(CURRENCY_PAIR, startDate, endDate, KlineIntervalType.min1);
+    }
+
+    public static void loadBarSeries(BarSeries barSeries, KucoinKline kucoinKlines) {
+        barSeries.addBar(Duration.ofMinutes(5L),
+                ZonedDateTime.ofInstant(Instant.ofEpochSecond(kucoinKlines.getTime()), ZoneOffset.UTC),
+                kucoinKlines.getOpen(),
+                kucoinKlines.getHigh(),
+                kucoinKlines.getLow(),
+                kucoinKlines.getClose(),
+                kucoinKlines.getVolume());
     }
 }
