@@ -1,10 +1,9 @@
 package com.trading.bot.scheduler;
 
+import com.trading.bot.configuration.MovingMomentumStrategy;
 import org.knowm.xchange.Exchange;
-import org.knowm.xchange.currency.CurrencyPair;
 import org.knowm.xchange.dto.trade.MarketOrder;
 import org.knowm.xchange.kucoin.dto.response.KucoinKline;
-import org.knowm.xchange.service.trade.TradeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,18 +11,17 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.BarSeries;
 import org.ta4j.core.BaseBarSeries;
-import org.ta4j.core.indicators.EMAIndicator;
-import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
+import org.ta4j.core.Strategy;
 
 import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
+import static com.trading.bot.configuration.BotConfig.CURRENCY_PAIR;
 import static com.trading.bot.util.TradeUtil.*;
 import static org.knowm.xchange.dto.Order.OrderType.*;
 
@@ -31,24 +29,18 @@ import static org.knowm.xchange.dto.Order.OrderType.*;
 public class Trader {
     protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
     private final Exchange exchange;
-    private boolean purchased = true;
-    private BigDecimal firstPrice;
+    private boolean purchased = false;
+    private String orderId;
     private final BarSeries barSeries;
-    private final EMAIndicator emaIndicator50;
-    private final EMAIndicator emaIndicator200;
+    private final Strategy strategy;
 
     @Value("${trader.buylimit}")
-    public float tradeLimit;
-
-
-    // Only for test !!!!!!!!!!!!!
-    private BigDecimal curAccount = BigDecimal.valueOf(1000.0F);
+    public BigDecimal tradeLimit;
 
     public Trader(Exchange exchange) {
         this.exchange = exchange;
         barSeries = new BaseBarSeries();
-        emaIndicator50 = new EMAIndicator(new ClosePriceIndicator(barSeries),50);
-        emaIndicator200 = new EMAIndicator(new ClosePriceIndicator(barSeries),200);
+        strategy = MovingMomentumStrategy.buildStrategy(barSeries);
     }
 
     @PostConstruct
@@ -68,28 +60,23 @@ public class Trader {
         List<KucoinKline> kucoinKlines = getKucoinKlines(exchange, startDate, 0L);
         KucoinKline lastKline = kucoinKlines.get(1);
         loadBarSeries(barSeries, lastKline);
-        float emaIndicator50Value = emaIndicator50.getValue(barSeries.getEndIndex()).floatValue();
-        float emaIndicator200Value = emaIndicator200.getValue(barSeries.getEndIndex()).floatValue();
 
-        if (!purchased && emaIndicator50Value > emaIndicator200Value) {
-            TradeService tradeService = exchange.getTradeService();
-            MarketOrder marketOrder = new MarketOrder(BID, BigDecimal.valueOf(1), CurrencyPair.BTC_USDT);
-            String response = tradeService.placeMarketOrder(marketOrder);
+        if (!purchased && strategy.shouldEnter(barSeries.getEndIndex())) {
+            MarketOrder marketOrder = new MarketOrder(BID, tradeLimit, CURRENCY_PAIR);
+            orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
 
-            firstPrice = lastKline.getClose();
-            logger.info("BUY {} Price {} Response {}", curAccount, lastKline.getClose(), response);
+            logger.info("BUY !!! Price {} Response {}", lastKline.getClose(), orderId);
             purchased = true;
             return;
         }
 
-        if (purchased &&  emaIndicator200Value > emaIndicator50Value) {
-            TradeService tradeService = exchange.getTradeService();
-            MarketOrder marketOrder = new MarketOrder(ASK, BigDecimal.valueOf(1), CurrencyPair.BTC_USDT);
-            String response = tradeService.placeMarketOrder(marketOrder);
+        if (purchased && strategy.shouldExit(barSeries.getEndIndex())) {
+            //exchange.getAccountService().getAccountInfo().getWallet("AVAX").getBalance()
+            MarketOrder marketOrder = new MarketOrder(ASK, tradeLimit, CURRENCY_PAIR);
+            orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
 
-            curAccount = curAccount.multiply(lastKline.getClose()).divide(firstPrice, 2, RoundingMode.HALF_UP);
-            logger.info("SELL {} firstPrice {} newPrice {} Response {}", curAccount, firstPrice, lastKline.getClose(), response);
-            purchased = false;
+            logger.info("SELL !!! Price {} Response {}", lastKline.getClose(), orderId);
+            purchased = true;
         }
     }
 }

@@ -3,6 +3,7 @@ package com.trading.bot.configuration;
 import org.knowm.xchange.Exchange;
 import org.knowm.xchange.ExchangeFactory;
 import org.knowm.xchange.ExchangeSpecification;
+import org.knowm.xchange.currency.Currency;
 import org.knowm.xchange.currency.CurrencyPair;
 import org.knowm.xchange.kucoin.KucoinExchange;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,7 +23,7 @@ public class BotConfig {
     public String exchangeSecretKey;
     @Value("${exchange.passphrase}")
     public String exchangePassphrase;
-    public static final CurrencyPair CURRENCY_PAIR = new CurrencyPair("BTC", "USDT");
+    public static final CurrencyPair CURRENCY_PAIR = new CurrencyPair("AVAX", "USDT");
 
     @Bean
     public Exchange getXChangeExchange() {
