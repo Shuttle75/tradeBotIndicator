@@ -54,7 +54,7 @@ public class Trader {
         kucoinKlines.forEach(kucoinKline -> loadBarSeries(barSeries, kucoinKline));
     }
 
-    @Scheduled(cron = "10 *AVAX * * * *")
+    @Scheduled(cron = "10 * * * * *")
     public void sell() throws IOException {
         final long startDate = LocalDateTime.now(ZoneOffset.UTC).minusMinutes(30).toEpochSecond(ZoneOffset.UTC);
         List<KucoinKline> kucoinKlines = getKucoinKlines(exchange, startDate, 0L);
