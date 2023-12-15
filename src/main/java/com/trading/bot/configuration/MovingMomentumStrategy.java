@@ -8,7 +8,10 @@ import org.ta4j.core.indicators.EMAIndicator;
 import org.ta4j.core.indicators.MACDIndicator;
 import org.ta4j.core.indicators.SMAIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
+import org.ta4j.core.indicators.helpers.CombineIndicator;
+import org.ta4j.core.num.Num;
 import org.ta4j.core.rules.*;
+
 
 public class MovingMomentumStrategy {
 
@@ -22,22 +25,20 @@ public class MovingMomentumStrategy {
         }
 
         ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
-        SMAIndicator smaIndicator = new SMAIndicator(closePrice, 5);
+        SMAIndicator smaFast = new SMAIndicator(closePrice, 5);
 
-        // The bias is bullish when the shorter-moving average moves above the longer moving average.
-        // The bias is bearish when the shorter-moving average moves below the longer moving average.
-        EMAIndicator shortEma = new EMAIndicator(smaIndicator, 50);
-        EMAIndicator longEma = new EMAIndicator(smaIndicator, 200);
+        MACDIndicator macd = new MACDIndicator(smaFast, 48, 104);
+        EMAIndicator signal = new EMAIndicator(macd, 36);
 
-        MACDIndicator macd = new MACDIndicator(smaIndicator, 12, 26);
-        EMAIndicator signal = new EMAIndicator(macd, 9);
+        CombineIndicator histogram = new CombineIndicator(macd, signal, Num::minus);
 
         // Entry rule
-        Rule entryRule = new OverIndicatorRule(shortEma, longEma) // Trend
-                .and(new CrossedDownIndicatorRule(signal, macd)); // Signal 1
+        Rule entryRule = new UnderIndicatorRule(macd, signal)
+                .and(new IsRisingRule(histogram, 2));
 
         // Exit rule
-        Rule exitRule = new CrossedUpIndicatorRule(signal, macd); // Signal 1
+        Rule exitRule = new OverIndicatorRule(macd, signal)
+                .and(new IsFallingRule(histogram, 8));
 
         return new BaseStrategy(entryRule, exitRule);
     }
