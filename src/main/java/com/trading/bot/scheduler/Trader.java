@@ -54,7 +54,7 @@ public class Trader {
         kucoinKlines.forEach(kucoinKline -> loadBarSeries(barSeries, kucoinKline));
     }
 
-    @Scheduled(cron = "10 * * * * *")
+   // @Scheduled(cron = "10 * * * * *")
     public void sell() throws IOException {
         final long startDate = LocalDateTime.now(ZoneOffset.UTC).minusMinutes(30).toEpochSecond(ZoneOffset.UTC);
         List<KucoinKline> kucoinKlines = getKucoinKlines(exchange, startDate, 0L);
@@ -62,8 +62,8 @@ public class Trader {
         loadBarSeries(barSeries, lastKline);
 
         if (!purchased && strategy.shouldEnter(barSeries.getEndIndex())) {
-            MarketOrder marketOrder = new MarketOrder(BID, tradeLimit, CURRENCY_PAIR);
-            orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
+//            MarketOrder marketOrder = new MarketOrder(BID, tradeLimit, CURRENCY_PAIR);
+//            orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
 
             logger.info("BUY {} Price {} Response {}", tradeLimit, lastKline.getClose(), orderId);
             purchased = true;
@@ -72,8 +72,8 @@ public class Trader {
 
         if (purchased && strategy.shouldExit(barSeries.getEndIndex())) {
             //exchange.getAccountService().getAccountInfo().getWallet("AVAX").getBalance()
-            MarketOrder marketOrder = new MarketOrder(ASK, tradeLimit, CURRENCY_PAIR);
-            orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
+//            MarketOrder marketOrder = new MarketOrder(ASK, tradeLimit, CURRENCY_PAIR);
+//            orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
 
             logger.info("SELL {} Price {} Response {}", tradeLimit, lastKline.getClose(), orderId);
             purchased = false;
