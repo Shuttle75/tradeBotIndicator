@@ -41,6 +41,11 @@ public class Trader {
     @Value("${trader.buylimit}")
     public BigDecimal tradeLimit;
 
+    @Value("${trader.stopOrderPercent}")
+    public BigDecimal stopOrderPercent;
+    private BigDecimal bidOrderPercent;
+    private BigDecimal askOrderPercent;
+
     public Trader(Exchange exchange) {
         this.exchange = exchange;
         barSeries = new BaseBarSeries();
@@ -50,13 +55,15 @@ public class Trader {
     @PostConstruct
     public void postConstruct() throws IOException {
         final long startDate = LocalDateTime.now(ZoneOffset.UTC).minusDays(4).toEpochSecond(ZoneOffset.UTC);
-        final long endDate = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES)
-            .minusMinutes(10).toEpochSecond(ZoneOffset.UTC);
+        final long endDate = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES).toEpochSecond(ZoneOffset.UTC);
 
         final List<KucoinKline> kucoinKlines = ((KucoinMarketDataService) exchange.getMarketDataService())
                 .getKucoinKlines(CURRENCY_PAIR, startDate, endDate, min5);
         Collections.reverse(kucoinKlines);
         kucoinKlines.forEach(kucoinKline -> loadBarSeries(barSeries, kucoinKline));
+
+        bidOrderPercent = BigDecimal.valueOf(100).add(stopOrderPercent).multiply(BigDecimal.valueOf(0.01));
+        askOrderPercent = BigDecimal.valueOf(100).subtract(stopOrderPercent).multiply(BigDecimal.valueOf(0.01));
     }
 
    @Scheduled(cron = "30 */5 * * * *")
@@ -67,10 +74,26 @@ public class Trader {
         KucoinKline lastKline = kucoinKlines.get(1);
         loadBarSeries(barSeries, lastKline);
 
+       if (tradeStatus.equals(READY_FOR_BID) && !orderId.isEmpty()) {
+           BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
+
+           if (baseBalance.compareTo(tradeLimit) >= 0) {
+               logger.info("StopOrder {} submitted", orderId);
+
+               tradeStatus = IN_BID;
+           } else {
+               exchange.getTradeService().cancelOrder(orderId);
+               logger.info("StopOrder {} canceled", orderId);
+
+               tradeStatus = IN_ASK;
+           }
+
+           orderId = "";
+       }
+
         if (tradeStatus.equals(IN_ASK) && strategy.shouldEnter(barSeries.getEndIndex())) {
-            BigDecimal stopOrderPrice = lastKline.getClose().multiply(BigDecimal.valueOf(1.005));
-            StopOrder stopOrder =
-                    new StopOrder(BID, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
+            BigDecimal stopOrderPrice = lastKline.getOpen().multiply(bidOrderPercent);
+            StopOrder stopOrder = new StopOrder(BID, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
             orderId = exchange.getTradeService().placeStopOrder(stopOrder);
 
             logger.info("StopOrder BID placed {} Price {} Response {}", tradeLimit, stopOrderPrice, orderId);
@@ -79,50 +102,30 @@ public class Trader {
             return;
         }
 
-        if (tradeStatus.equals(READY_FOR_BID) && !orderId.isEmpty()) {
-            BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
+       if (tradeStatus.equals(READY_FOR_ASK) && !orderId.isEmpty()) {
+           BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
 
-            if (baseBalance.compareTo(tradeLimit) >= 0) {
-                logger.info("StopOrder {} submitted", orderId);
+           if (baseBalance.compareTo(tradeLimit) < 0) {
+               logger.info("StopOrder {} submitted", orderId);
+               tradeStatus = IN_ASK;
+           } else {
+               exchange.getTradeService().cancelOrder(orderId);
+               logger.info("StopOrder {} canceled", orderId);
 
-                tradeStatus = IN_BID;
-            } else {
-                exchange.getTradeService().cancelOrder(orderId);
-                logger.info("StopOrder {} canceled", orderId);
+               tradeStatus = IN_BID;
+           }
 
-                tradeStatus = IN_ASK;
-            }
-
-            orderId = "";
-            return;
-        }
+           orderId = "";
+       }
 
         if (tradeStatus.equals(IN_BID) && strategy.shouldExit(barSeries.getEndIndex())) {
-            BigDecimal stopOrderPrice = lastKline.getClose().multiply(BigDecimal.valueOf(0.995));
-            StopOrder stopOrder =
-                    new StopOrder(ASK, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
+            BigDecimal stopOrderPrice = lastKline.getOpen().multiply(askOrderPercent);
+            StopOrder stopOrder = new StopOrder(ASK, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
             orderId = exchange.getTradeService().placeStopOrder(stopOrder);
 
             logger.info("StopOrder ASK placed {} Price {} Response {}", tradeLimit, stopOrderPrice, orderId);
 
             tradeStatus = READY_FOR_ASK;
-            return;
-        }
-
-        if (tradeStatus.equals(READY_FOR_ASK) && !orderId.isEmpty()) {
-            BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
-
-            if (baseBalance.compareTo(tradeLimit) < 0) {
-                logger.info("StopOrder {} submitted", orderId);
-                tradeStatus = IN_ASK;
-            } else {
-                exchange.getTradeService().cancelOrder(orderId);
-                logger.info("StopOrder {} canceled", orderId);
-
-                tradeStatus = IN_BID;
-            }
-
-            orderId = "";
         }
     }
 

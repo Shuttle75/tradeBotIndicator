@@ -6,7 +6,6 @@ import org.ta4j.core.Rule;
 import org.ta4j.core.Strategy;
 import org.ta4j.core.indicators.EMAIndicator;
 import org.ta4j.core.indicators.MACDIndicator;
-import org.ta4j.core.indicators.SMAIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.indicators.helpers.CombineIndicator;
 import org.ta4j.core.num.Num;
@@ -25,9 +24,8 @@ public class MovingStrategy {
         }
 
         ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
-        SMAIndicator smaFast = new SMAIndicator(closePrice, 2);
 
-        MACDIndicator macd = new MACDIndicator(smaFast, 12, 26);
+        MACDIndicator macd = new MACDIndicator(closePrice, 12, 26);
         EMAIndicator signal = new EMAIndicator(macd, 9);
 
         CombineIndicator histogram = new CombineIndicator(macd, signal, Num::minus);
