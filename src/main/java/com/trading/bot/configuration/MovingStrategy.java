@@ -13,7 +13,7 @@ import org.ta4j.core.num.Num;
 import org.ta4j.core.rules.*;
 
 
-public class MovingMomentumStrategy {
+public class MovingStrategy {
 
     /**
      * @param series a time series
@@ -25,20 +25,20 @@ public class MovingMomentumStrategy {
         }
 
         ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
-        SMAIndicator smaFast = new SMAIndicator(closePrice, 5);
+        SMAIndicator smaFast = new SMAIndicator(closePrice, 2);
 
-        MACDIndicator macd = new MACDIndicator(smaFast, 48, 104);
-        EMAIndicator signal = new EMAIndicator(macd, 36);
+        MACDIndicator macd = new MACDIndicator(smaFast, 12, 26);
+        EMAIndicator signal = new EMAIndicator(macd, 9);
 
         CombineIndicator histogram = new CombineIndicator(macd, signal, Num::minus);
 
         // Entry rule
         Rule entryRule = new UnderIndicatorRule(macd, signal)
-                .and(new IsRisingRule(histogram, 2));
+                .and(new IsRisingRule(histogram, 1));
 
         // Exit rule
         Rule exitRule = new OverIndicatorRule(macd, signal)
-                .and(new IsFallingRule(histogram, 8));
+                .and(new IsFallingRule(histogram, 1));
 
         return new BaseStrategy(entryRule, exitRule);
     }

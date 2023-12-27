@@ -1,10 +1,10 @@
 package com.trading.bot.scheduler;
 
-import com.trading.bot.configuration.MovingMomentumStrategy;
+import com.trading.bot.configuration.MovingStrategy;
 import org.knowm.xchange.Exchange;
-import org.knowm.xchange.dto.trade.MarketOrder;
+import org.knowm.xchange.currency.Currency;
+import org.knowm.xchange.dto.trade.StopOrder;
 import org.knowm.xchange.kucoin.KucoinMarketDataService;
-import org.knowm.xchange.kucoin.dto.KlineIntervalType;
 import org.knowm.xchange.kucoin.dto.response.KucoinKline;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,14 +23,18 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 import static com.trading.bot.configuration.BotConfig.CURRENCY_PAIR;
+import static com.trading.bot.scheduler.TradeStatus.*;
 import static org.knowm.xchange.dto.Order.OrderType.*;
+import static org.knowm.xchange.kucoin.dto.KlineIntervalType.min5;
+
+enum TradeStatus{READY_FOR_BID, IN_BID, READY_FOR_ASK, IN_ASK}
 
 @Service
 public class Trader {
     protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
     private final Exchange exchange;
-    private boolean purchased = false;
-    private String orderId;
+    private TradeStatus tradeStatus = IN_ASK;
+    private String orderId = "";
     private final BarSeries barSeries;
     private final Strategy strategy;
 
@@ -40,58 +44,97 @@ public class Trader {
     public Trader(Exchange exchange) {
         this.exchange = exchange;
         barSeries = new BaseBarSeries();
-        strategy = MovingMomentumStrategy.buildStrategy(barSeries);
+        strategy = MovingStrategy.buildStrategy(barSeries);
     }
 
     @PostConstruct
     public void postConstruct() throws IOException {
         final long startDate = LocalDateTime.now(ZoneOffset.UTC).minusDays(4).toEpochSecond(ZoneOffset.UTC);
         final long endDate = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES)
-            .minusMinutes(5).toEpochSecond(ZoneOffset.UTC);
+            .minusMinutes(10).toEpochSecond(ZoneOffset.UTC);
 
-        final List<KucoinKline> kucoinKlines = getKucoinKlines(exchange, startDate, endDate);
+        final List<KucoinKline> kucoinKlines = ((KucoinMarketDataService) exchange.getMarketDataService())
+                .getKucoinKlines(CURRENCY_PAIR, startDate, endDate, min5);
         Collections.reverse(kucoinKlines);
         kucoinKlines.forEach(kucoinKline -> loadBarSeries(barSeries, kucoinKline));
     }
 
-   // @Scheduled(cron = "10 * * * * *")
+   @Scheduled(cron = "30 */5 * * * *")
     public void sell() throws IOException {
         final long startDate = LocalDateTime.now(ZoneOffset.UTC).minusMinutes(30).toEpochSecond(ZoneOffset.UTC);
-        List<KucoinKline> kucoinKlines = getKucoinKlines(exchange, startDate, 0L);
+        List<KucoinKline> kucoinKlines = ((KucoinMarketDataService) exchange.getMarketDataService())
+                .getKucoinKlines(CURRENCY_PAIR, startDate, 0L, min5);
         KucoinKline lastKline = kucoinKlines.get(1);
         loadBarSeries(barSeries, lastKline);
 
-        if (!purchased && strategy.shouldEnter(barSeries.getEndIndex())) {
-//            MarketOrder marketOrder = new MarketOrder(BID, tradeLimit, CURRENCY_PAIR);
-//            orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
+        if (tradeStatus.equals(IN_ASK) && strategy.shouldEnter(barSeries.getEndIndex())) {
+            BigDecimal stopOrderPrice = lastKline.getClose().multiply(BigDecimal.valueOf(1.005));
+            StopOrder stopOrder =
+                    new StopOrder(BID, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
+            orderId = exchange.getTradeService().placeStopOrder(stopOrder);
 
-            logger.info("BUY {} Price {} Response {}", tradeLimit, lastKline.getClose(), orderId);
-            purchased = true;
+            logger.info("StopOrder BID placed {} Price {} Response {}", tradeLimit, stopOrderPrice, orderId);
+
+            tradeStatus = READY_FOR_BID;
             return;
         }
 
-        if (purchased && strategy.shouldExit(barSeries.getEndIndex())) {
-            //exchange.getAccountService().getAccountInfo().getWallet("AVAX").getBalance()
-//            MarketOrder marketOrder = new MarketOrder(ASK, tradeLimit, CURRENCY_PAIR);
-//            orderId = exchange.getTradeService().placeMarketOrder(marketOrder);
+        if (tradeStatus.equals(READY_FOR_BID) && !orderId.isEmpty()) {
+            BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
 
-            logger.info("SELL {} Price {} Response {}", tradeLimit, lastKline.getClose(), orderId);
-            purchased = false;
+            if (baseBalance.compareTo(tradeLimit) >= 0) {
+                logger.info("StopOrder {} submitted", orderId);
+
+                tradeStatus = IN_BID;
+            } else {
+                exchange.getTradeService().cancelOrder(orderId);
+                logger.info("StopOrder {} canceled", orderId);
+
+                tradeStatus = IN_ASK;
+            }
+
+            orderId = "";
+            return;
+        }
+
+        if (tradeStatus.equals(IN_BID) && strategy.shouldExit(barSeries.getEndIndex())) {
+            BigDecimal stopOrderPrice = lastKline.getClose().multiply(BigDecimal.valueOf(0.995));
+            StopOrder stopOrder =
+                    new StopOrder(ASK, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
+            orderId = exchange.getTradeService().placeStopOrder(stopOrder);
+
+            logger.info("StopOrder ASK placed {} Price {} Response {}", tradeLimit, stopOrderPrice, orderId);
+
+            tradeStatus = READY_FOR_ASK;
+            return;
+        }
+
+        if (tradeStatus.equals(READY_FOR_ASK) && !orderId.isEmpty()) {
+            BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
+
+            if (baseBalance.compareTo(tradeLimit) < 0) {
+                logger.info("StopOrder {} submitted", orderId);
+                tradeStatus = IN_ASK;
+            } else {
+                exchange.getTradeService().cancelOrder(orderId);
+                logger.info("StopOrder {} canceled", orderId);
+
+                tradeStatus = IN_BID;
+            }
+
+            orderId = "";
         }
     }
 
-    public static List<KucoinKline> getKucoinKlines(Exchange exchange, long startDate, long endDate) throws IOException {
-        return ((KucoinMarketDataService) exchange.getMarketDataService())
-                .getKucoinKlines(CURRENCY_PAIR, startDate, endDate, KlineIntervalType.min1);
-    }
-
     public static void loadBarSeries(BarSeries barSeries, KucoinKline kucoinKlines) {
-        barSeries.addBar(Duration.ofMinutes(5L),
-                ZonedDateTime.ofInstant(Instant.ofEpochSecond(kucoinKlines.getTime()), ZoneOffset.UTC),
-                kucoinKlines.getOpen(),
-                kucoinKlines.getHigh(),
-                kucoinKlines.getLow(),
-                kucoinKlines.getClose(),
-                kucoinKlines.getVolume());
+        if (barSeries.isEmpty() || kucoinKlines.getTime() > barSeries.getLastBar().getEndTime().toEpochSecond()) {
+            barSeries.addBar(Duration.ofMinutes(5L),
+                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(kucoinKlines.getTime()), ZoneOffset.UTC),
+                    kucoinKlines.getOpen(),
+                    kucoinKlines.getHigh(),
+                    kucoinKlines.getLow(),
+                    kucoinKlines.getClose(),
+                    kucoinKlines.getVolume());
+        }
     }
 }

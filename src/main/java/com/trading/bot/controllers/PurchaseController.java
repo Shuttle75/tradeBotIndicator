@@ -1,6 +1,6 @@
 package com.trading.bot.controllers;
 
-import com.trading.bot.configuration.MovingMomentumStrategy;
+import com.trading.bot.configuration.MovingStrategy;
 import org.knowm.xchange.Exchange;
 import org.knowm.xchange.currency.CurrencyPair;
 import org.knowm.xchange.kucoin.KucoinMarketDataService;
@@ -50,7 +50,7 @@ public class PurchaseController {
             @RequestParam BigDecimal walletUSDT,
             @RequestParam BigDecimal stopLoss) throws IOException {
         final BarSeries barSeries = new BaseBarSeries();
-        final Strategy movingMomentumStrategy = MovingMomentumStrategy.buildStrategy(barSeries);
+        final Strategy movingMomentumStrategy = MovingStrategy.buildStrategy(barSeries);
 
         long purchaseDate = 0;
         BigDecimal walletUSDTBefore = BigDecimal.valueOf(0);
