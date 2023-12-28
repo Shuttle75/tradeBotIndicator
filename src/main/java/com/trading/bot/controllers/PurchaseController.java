@@ -16,16 +16,12 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
+import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import static com.trading.bot.scheduler.Trader.loadBarSeries;
 import static org.knowm.xchange.kucoin.dto.KlineIntervalType.min5;
 
 @RestController
@@ -129,6 +125,18 @@ public class PurchaseController {
         }
 
         return listResult;
+    }
+
+    private static void loadBarSeries(BarSeries barSeries, KucoinKline kucoinKlines) {
+        if (barSeries.isEmpty() || kucoinKlines.getTime() > barSeries.getLastBar().getEndTime().toEpochSecond()) {
+            barSeries.addBar(Duration.ofMinutes(5L),
+                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(kucoinKlines.getTime()), ZoneOffset.UTC),
+                    kucoinKlines.getOpen(),
+                    kucoinKlines.getHigh(),
+                    kucoinKlines.getLow(),
+                    kucoinKlines.getClose(),
+                    kucoinKlines.getVolume());
+        }
     }
 }
 
