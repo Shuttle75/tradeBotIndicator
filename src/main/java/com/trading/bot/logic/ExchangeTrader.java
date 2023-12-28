@@ -5,11 +5,11 @@ import org.knowm.xchange.Exchange;
 import org.knowm.xchange.currency.Currency;
 import org.knowm.xchange.dto.Order;
 import org.knowm.xchange.dto.trade.StopOrder;
-import org.knowm.xchange.kucoin.KucoinMarketDataService;
 import org.knowm.xchange.kucoin.dto.response.KucoinKline;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.BarSeries;
 import org.ta4j.core.BaseBarSeries;
@@ -19,16 +19,12 @@ import javax.annotation.PostConstruct;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.*;
-import java.time.temporal.ChronoUnit;
-import java.util.Collections;
-import java.util.List;
 
 import static com.trading.bot.configuration.BotConfig.CURRENCY_PAIR;
 import static org.knowm.xchange.dto.Order.OrderType.ASK;
 import static org.knowm.xchange.dto.Order.OrderType.BID;
-import static org.knowm.xchange.kucoin.dto.KlineIntervalType.min5;
 
-
+@Profile("prod")
 @Service
 public class ExchangeTrader implements Trader {
 
@@ -46,7 +42,7 @@ public class ExchangeTrader implements Trader {
     private final Strategy strategy;
     private BigDecimal bidOrderPercent;
     private BigDecimal askOrderPercent;
-    private BigDecimal askOrderPrice;
+    private BigDecimal askOrderPrice = BigDecimal.ZERO;
 
     public ExchangeTrader(Exchange exchange) {
         this.exchange = exchange;
@@ -55,15 +51,7 @@ public class ExchangeTrader implements Trader {
     }
 
     @PostConstruct
-    public void postConstruct() throws IOException {
-        final long startDate = LocalDateTime.now(ZoneOffset.UTC).minusDays(4).toEpochSecond(ZoneOffset.UTC);
-        final long endDate = LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MINUTES).toEpochSecond(ZoneOffset.UTC);
-
-        final List<KucoinKline> kucoinKlines = ((KucoinMarketDataService) exchange.getMarketDataService())
-                .getKucoinKlines(CURRENCY_PAIR, startDate, endDate, min5);
-        Collections.reverse(kucoinKlines);
-        kucoinKlines.forEach(this::loadBarSeries);
-
+    public void postConstruct() {
         bidOrderPercent = BigDecimal.valueOf(100).add(stopOrderPercent).multiply(BigDecimal.valueOf(0.01));
         askOrderPercent = BigDecimal.valueOf(100).subtract(stopOrderPercent).multiply(BigDecimal.valueOf(0.01));
     }
@@ -131,15 +119,15 @@ public class ExchangeTrader implements Trader {
         }
     }
 
-    public void loadBarSeries(KucoinKline kucoinKlines) {
-        if (barSeries.isEmpty() || kucoinKlines.getTime() > barSeries.getLastBar().getEndTime().toEpochSecond()) {
+    public void loadBarSeries(KucoinKline kline) {
+        if (barSeries.isEmpty() || kline.getTime() > barSeries.getLastBar().getEndTime().toEpochSecond()) {
             barSeries.addBar(Duration.ofMinutes(5L),
-                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(kucoinKlines.getTime()), ZoneOffset.UTC),
-                    kucoinKlines.getOpen(),
-                    kucoinKlines.getHigh(),
-                    kucoinKlines.getLow(),
-                    kucoinKlines.getClose(),
-                    kucoinKlines.getVolume());
+                    ZonedDateTime.ofInstant(Instant.ofEpochSecond(kline.getTime()), ZoneOffset.UTC),
+                    kline.getOpen(),
+                    kline.getHigh(),
+                    kline.getLow(),
+                    kline.getClose(),
+                    kline.getVolume());
         }
     }
 
@@ -151,7 +139,7 @@ public class ExchangeTrader implements Trader {
     @Override
     public void placeStopOrder(Order.OrderType bid, BigDecimal stopOrderPrice) throws IOException {
         StopOrder stopOrder = new StopOrder(bid, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
-        orderId = exchange.getTradeService().placeStopOrder(stopOrder);
+//        orderId = exchange.getTradeService().placeStopOrder(stopOrder);
     }
 
     @Override

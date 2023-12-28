@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 
 public interface Trader {
     void loadBarSeries(KucoinKline kucoinKlines);
+    void next(KucoinKline lastKline) throws IOException;
     BigDecimal getBalance() throws IOException;
     void placeStopOrder(Order.OrderType bid, BigDecimal stopOrderPrice) throws IOException;
     void cancelOrder() throws IOException;
