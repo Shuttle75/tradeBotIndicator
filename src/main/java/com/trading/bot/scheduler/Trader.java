@@ -27,7 +27,7 @@ import static com.trading.bot.scheduler.TradeStatus.*;
 import static org.knowm.xchange.dto.Order.OrderType.*;
 import static org.knowm.xchange.kucoin.dto.KlineIntervalType.min5;
 
-enum TradeStatus{READY_FOR_BID, IN_BID, READY_FOR_ASK, IN_ASK}
+enum TradeStatus{IN_BID, IN_ASK}
 
 @Service
 public class Trader {
@@ -45,6 +45,7 @@ public class Trader {
     public BigDecimal stopOrderPercent;
     private BigDecimal bidOrderPercent;
     private BigDecimal askOrderPercent;
+    private BigDecimal askOrderPrice;
 
     public Trader(Exchange exchange) {
         this.exchange = exchange;
@@ -74,58 +75,62 @@ public class Trader {
         KucoinKline lastKline = kucoinKlines.get(1);
         loadBarSeries(barSeries, lastKline);
 
-       if (tradeStatus.equals(READY_FOR_BID) && !orderId.isEmpty()) {
-           BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
 
-           if (baseBalance.compareTo(tradeLimit) >= 0) {
-               logger.info("StopOrder {} submitted", orderId);
+        if (tradeStatus.equals(IN_ASK)) {
+            BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
+            if (baseBalance.compareTo(tradeLimit) >= 0) {
+                // Buy
+                logger.info("BID StopOrder {} submitted", orderId);
+                tradeStatus = IN_BID;
+            } else {
+                if (!orderId.isEmpty()) {
+                    // Cancel
+                    exchange.getTradeService().cancelOrder(orderId);
+                    logger.info("BID StopOrder {} canceled", orderId);
+                    orderId = "";
+                }
 
-               tradeStatus = IN_BID;
-           } else {
-               exchange.getTradeService().cancelOrder(orderId);
-               logger.info("StopOrder {} canceled", orderId);
-
-               tradeStatus = IN_ASK;
-           }
-
-           orderId = "";
-       }
-
-        if (tradeStatus.equals(IN_ASK) && strategy.shouldEnter(barSeries.getEndIndex())) {
-            BigDecimal stopOrderPrice = lastKline.getOpen().multiply(bidOrderPercent);
-            StopOrder stopOrder = new StopOrder(BID, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
-            orderId = exchange.getTradeService().placeStopOrder(stopOrder);
-
-            logger.info("StopOrder BID placed {} Price {} Response {}", tradeLimit, stopOrderPrice, orderId);
-
-            tradeStatus = READY_FOR_BID;
+                if (strategy.shouldEnter(barSeries.getEndIndex())) {
+                    // New
+                    BigDecimal stopOrderPrice = lastKline.getOpen().multiply(bidOrderPercent);
+                    stopOrderPrice = stopOrderPrice.compareTo(lastKline.getHigh()) > 0 ? stopOrderPrice : lastKline.getHigh();
+                    StopOrder stopOrder = new StopOrder(BID, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
+                    orderId = exchange.getTradeService().placeStopOrder(stopOrder);
+                    logger.info("StopOrder BID placed {} Price {} Response {}", tradeLimit, stopOrderPrice, orderId);
+                }
+            }
             return;
         }
 
-       if (tradeStatus.equals(READY_FOR_ASK) && !orderId.isEmpty()) {
-           BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
+        if (tradeStatus.equals(IN_BID)) {
+            BigDecimal baseBalance = exchange.getAccountService().getAccountInfo().getWallet("trade").getBalance(Currency.SOL).getAvailable();
+            if (baseBalance.compareTo(tradeLimit) < 0) {
+                // Sell
+                logger.info("ASK StopOrder {} submitted", orderId);
+                tradeStatus = IN_ASK;
+                askOrderPrice = BigDecimal.ZERO;
+            } else {
 
-           if (baseBalance.compareTo(tradeLimit) < 0) {
-               logger.info("StopOrder {} submitted", orderId);
-               tradeStatus = IN_ASK;
-           } else {
-               exchange.getTradeService().cancelOrder(orderId);
-               logger.info("StopOrder {} canceled", orderId);
+                // Calc Stop Loss
+                BigDecimal stopOrderPrice = lastKline.getOpen().multiply(askOrderPercent);
+                stopOrderPrice = stopOrderPrice.compareTo(lastKline.getLow()) > 0 ? stopOrderPrice : lastKline.getLow();
 
-               tradeStatus = IN_BID;
-           }
+                if (stopOrderPrice.compareTo(askOrderPrice) > 0) {
+                    askOrderPrice = stopOrderPrice;
 
-           orderId = "";
-       }
+                    if (!orderId.isEmpty()) {
+                        // Cancel
+                        exchange.getTradeService().cancelOrder(orderId);
+                        logger.info("ASK StopOrder {} canceled", orderId);
+                        orderId = "";
+                    }
 
-        if (tradeStatus.equals(IN_BID) && strategy.shouldExit(barSeries.getEndIndex())) {
-            BigDecimal stopOrderPrice = lastKline.getOpen().multiply(askOrderPercent);
-            StopOrder stopOrder = new StopOrder(ASK, tradeLimit, CURRENCY_PAIR, "", null, stopOrderPrice);
-            orderId = exchange.getTradeService().placeStopOrder(stopOrder);
-
-            logger.info("StopOrder ASK placed {} Price {} Response {}", tradeLimit, stopOrderPrice, orderId);
-
-            tradeStatus = READY_FOR_ASK;
+                    // New
+                    StopOrder stopOrder = new StopOrder(ASK, tradeLimit, CURRENCY_PAIR, "", null, askOrderPrice);
+                    orderId = exchange.getTradeService().placeStopOrder(stopOrder);
+                    logger.info("ASK StopOrder ASK placed {} Price {} Response {}", tradeLimit, askOrderPrice, orderId);
+                }
+            }
         }
     }
 
