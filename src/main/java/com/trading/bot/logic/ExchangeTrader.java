@@ -31,8 +31,8 @@ public class ExchangeTrader implements Trader {
     @Value("${trader.buylimit}")
     public BigDecimal tradeLimit;
 
-    @Value("${trader.stopOrderPercent}")
-    private BigDecimal stopOrderPercent;
+  //  @Value("${trader.stopOrderPercent}")
+    private BigDecimal stopOrderPercent = BigDecimal.valueOf(0.5F);
 
     protected final Logger logger = LoggerFactory.getLogger(getClass().getName());
     private final Exchange exchange;
@@ -72,7 +72,7 @@ public class ExchangeTrader implements Trader {
 
     private void tradeBID(KucoinKline lastKline) throws IOException {
         BigDecimal baseBalance = getBalance();
-        if (baseBalance.compareTo(tradeLimit) >= 0) {
+        if (baseBalance.compareTo(BigDecimal.ONE) >= 0) {
             // Buy
             logger.info("BID StopOrder {} submitted, change to IN_BID", orderId);
             tradeStatus = BID;
@@ -84,7 +84,7 @@ public class ExchangeTrader implements Trader {
 
             if (strategy.shouldEnter(barSeries.getEndIndex())) {
                 // New
-                BigDecimal stopOrderPrice = lastKline.getOpen().multiply(bidOrderPercent);
+                BigDecimal stopOrderPrice = lastKline.getClose().multiply(bidOrderPercent);
                 stopOrderPrice = stopOrderPrice.compareTo(lastKline.getHigh()) > 0 ? stopOrderPrice : lastKline.getHigh();
                 placeStopOrder(BID, stopOrderPrice);
                 logger.info("StopOrder BID placed {} Price {} Response {}", tradeLimit, stopOrderPrice, orderId);
@@ -94,7 +94,7 @@ public class ExchangeTrader implements Trader {
 
     private void tradeASK(KucoinKline lastKline) throws IOException {
         BigDecimal baseBalance = getBalance();
-        if (baseBalance.compareTo(tradeLimit) < 0) {
+        if (baseBalance.compareTo(BigDecimal.ONE) < 0) {
             // Sell
             logger.info("ASK StopOrder {} submitted, change to IN_ASK", orderId);
             tradeStatus = ASK;
@@ -102,8 +102,8 @@ public class ExchangeTrader implements Trader {
         } else {
 
             // Calc Stop Loss
-            BigDecimal stopOrderPrice = lastKline.getOpen().multiply(askOrderPercent);
-            stopOrderPrice = stopOrderPrice.compareTo(lastKline.getLow()) > 0 ? stopOrderPrice : lastKline.getLow();
+            BigDecimal stopOrderPrice = lastKline.getClose().multiply(askOrderPercent);
+            stopOrderPrice = stopOrderPrice.compareTo(lastKline.getLow()) < 0 ? stopOrderPrice : lastKline.getLow();
 
             if (stopOrderPrice.compareTo(askOrderPrice) > 0) {
                 askOrderPrice = stopOrderPrice;

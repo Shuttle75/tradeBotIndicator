@@ -46,6 +46,7 @@ public class MockTrader extends ExchangeTrader {
             walletBase = walletUSDT.divide(kline.getClose(), 0, RoundingMode.DOWN);
             walletUSDT = walletUSDT.subtract(walletBase.multiply(kline.getClose()));
 
+            orderId = "";
             stopOrderBID.setActive(false);
         }
 
@@ -58,6 +59,7 @@ public class MockTrader extends ExchangeTrader {
             walletBase = BigDecimal.valueOf(0);
 
             stopOrderASK.setWalletUSDT(walletUSDT);
+            orderId = "";
             stopOrderASK.setActive(false);
 
             listResult.add(ZonedDateTime.ofInstant(Instant.ofEpochSecond(stopOrderBID.date), ZoneOffset.UTC) + " " +

@@ -17,7 +17,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
 
-import static org.knowm.xchange.kucoin.dto.KlineIntervalType.min5;
+import static org.knowm.xchange.kucoin.dto.KlineIntervalType.min15;
 
 @RestController
 public class StopOrderController {
@@ -49,7 +49,7 @@ public class StopOrderController {
                         new CurrencyPair(baseSymbol, counterSymbol),
                         startDate.minusDays(1).toEpochSecond(ZoneOffset.UTC),
                         startDate.toEpochSecond(ZoneOffset.UTC),
-                        min5);
+                        min15);
         Collections.reverse(klines);
         klines.forEach(trader::loadBarSeries);
 
@@ -61,9 +61,8 @@ public class StopOrderController {
                             new CurrencyPair(baseSymbol, counterSymbol),
                             startDate.plusDays(day).toEpochSecond(ZoneOffset.UTC),
                             startDate.plusDays(day + 1L).toEpochSecond(ZoneOffset.UTC),
-                            min5);
+                            min15);
             Collections.reverse(klines);
-            klines.forEach(trader::loadBarSeries);
 
             for (KucoinKline kline : klines) {
                 trader.next(kline);
